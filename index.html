@@ -76,20 +76,10 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getFirestore, collection, doc, onSnapshot, runTransaction, query, getDocs, deleteDoc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 
         // --- 1. 환경 설정 및 Firebase 설정 ---
-        let firebaseConfig;
-        try {
-            if (typeof __firebase_config !== 'undefined' && __firebase_config && __firebase_config.trim() !== '') {
-                firebaseConfig = JSON.parse(__firebase_config);
-            }
-        } catch (e) {
-            console.warn("__firebase_config 파싱 실패, 기본 설정 사용");
-        }
-
-        if (!firebaseConfig || !firebaseConfig.apiKey) {
-            firebaseConfig = {
+        const firebaseConfig = {
                 apiKey: "AIzaSyDJGKm_NzK2E86G6YRdR5rCEPPGZA1FRMY",
                 authDomain: "navien-heatpump-2609.firebaseapp.com",
                 projectId: "navien-heatpump-2609",
@@ -100,7 +90,7 @@
             };
         }
 
-        const globalAppId = typeof __app_id !== 'undefined' ? __app_id : 'navien-awh-2609';
+        const globalAppId = 'navien-awh-2609';
         const MAX_CAPACITY = 31;
         const ADMIN_PASSWORD = "admin1234";
         
