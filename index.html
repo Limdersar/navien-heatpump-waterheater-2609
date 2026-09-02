@@ -73,7 +73,28 @@
         </div>
     </div>
 
-    <script>
+    <!-- Firebase SDK 및 앱 로직 -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, doc, setDoc, addDoc, updateDoc, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'navien-awh-training';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' && __firebase_config !== '{}' 
+            ? JSON.parse(__firebase_config) 
+            : {
+                apiKey: "AIzaSyAI0xmQm1KLok_Cbzzkp2shLF3al_NbX7s",
+                authDomain: "navien-heatpumpwh-2609.firebaseapp.com",
+                projectId: "navien-heatpumpwh-2609",
+                storageBucket: "navien-heatpumpwh-2609.firebasestorage.app",
+                messagingSenderId: "32872894487",
+                appId: "1:32872894487:web:ff0b7de3dc0703aa158c52"
+              };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+
         const MAX_CAPACITY = 31; // 차수당 31명
         const ADMIN_PASSWORD = "admin1234";
         
@@ -86,60 +107,66 @@
         
         const TERMS = "개인정보 수집 및 이용에 동의합니다. (수집항목: 대리점명, 이름, 연락처 / 보유기간: 교육 종료 전후 1년)";
 
-        // --- 로컬 스토리지 데이터 관리 헬퍼 ---
-        const STORAGE_KEY_REGS = 'navien_awh_registrations_v1';
-        const STORAGE_KEY_CONFIG = 'navien_awh_config_v1';
-
-        function loadRegistrations() {
-            try {
-                const data = localStorage.getItem(STORAGE_KEY_REGS);
-                return data ? JSON.parse(data) : [];
-            } catch (e) {
-                console.error("Local storage load error:", e);
-                return [];
-            }
-        }
-
-        function saveRegistrations(regs) {
-            try {
-                localStorage.setItem(STORAGE_KEY_REGS, JSON.stringify(regs));
-            } catch (e) {
-                console.error("Local storage save error:", e);
-            }
-        }
-
-        function loadSettings() {
-            try {
-                const data = localStorage.getItem(STORAGE_KEY_CONFIG);
-                return data ? JSON.parse(data) : { startAt: "", endAt: "" };
-            } catch (e) {
-                return { startAt: "", endAt: "" };
-            }
-        }
-
-        function saveSettingsToStorage(settings) {
-            try {
-                localStorage.setItem(STORAGE_KEY_CONFIG, JSON.stringify(settings));
-            } catch (e) {
-                console.error("Settings save error:", e);
-            }
-        }
-
-        // --- 애플리케이션 상태 객체 ---
         let state = {
             view: 'registration', 
-            registrations: loadRegistrations(),
+            registrations: [],
             selectedDate: "2026-09-08", 
             selectedTime: "오후", 
             isAdminAuthenticated: false,
-            isSubmitting: false,
-            settings: loadSettings(),
+            isSubmitting: true, // 데이터 로드 전까지 로딩 표시
+            settings: { startAt: "", endAt: "" },
             
             editRegistrationId: null,
             editData: null,
             searchName: "",
             searchPhone: ""
         };
+
+        // Firebase 인증 및 실시간 리스너 연결
+        async function initFirebase() {
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+                
+                // 1. 실시간 신청 명단 리스너 (Rule 1 준수)
+                const regsRef = collection(db, 'artifacts', appId, 'public', 'data', 'registrations');
+                onSnapshot(regsRef, (snapshot) => {
+                    const regs = [];
+                    snapshot.forEach(docSnap => {
+                        regs.push({ id: docSnap.id, ...docSnap.data() });
+                    });
+                    setState({ registrations: regs, isSubmitting: false });
+                }, (error) => {
+                    console.error("Registrations snapshot error:", error);
+                    setState({ isSubmitting: false });
+                });
+
+                // 2. 실시간 접수 설정 리스너
+                const settingsRef = doc(db, 'artifacts', appId, 'public', 'data', 'config', 'settings');
+                onSnapshot(settingsRef, (docSnap) => {
+                    if (docSnap.exists()) {
+                        setState({ settings: docSnap.data() });
+                    }
+                }, (error) => {
+                    console.error("Settings snapshot error:", error);
+                });
+
+            } catch (e) {
+                console.error("Firebase auth error:", e);
+                try {
+                    await signInAnonymously(auth);
+                    initFirebase();
+                } catch (err) {
+                    console.error("Fallback anonymous auth failed:", err);
+                    setState({ isSubmitting: false });
+                }
+            }
+        }
+
+        initFirebase();
 
         window.showAlert = (message, title = "알림") => {
             return new Promise((resolve) => {
@@ -219,7 +246,7 @@
             }
             
             const data = [["No", "교육일자", "교육시간", "대리점", "신청자", "연락처", "신청시간"]];
-            const sortedRegs = [...state.registrations].sort((a,b) => a.createdAt.localeCompare(b.createdAt));
+            const sortedRegs = [...state.registrations].sort((a,b) => (a.createdAt || "").localeCompare(b.createdAt || ""));
             const displayRegs = [...sortedRegs].reverse();
 
             displayRegs.forEach((r) => {
@@ -276,6 +303,10 @@
         async function handleRegister(e) {
             e.preventDefault();
             if (!checkTimeLimits()) return;
+            if (!auth.currentUser) {
+                await showAlert("인증 연결 중입니다. 잠시 후 다시 시도해주세요.");
+                return;
+            }
             
             const agency = document.getElementById('input-agency').value.trim();
             const name = document.getElementById('input-name').value.trim();
@@ -316,7 +347,6 @@
                 }
 
                 const newReg = {
-                    id: 'reg_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
                     agency,
                     name,
                     phone: formattedPhone,
@@ -325,10 +355,10 @@
                     createdAt: new Date().toISOString()
                 };
 
-                const updated = [newReg, ...state.registrations];
-                saveRegistrations(updated);
+                const regsRef = collection(db, 'artifacts', appId, 'public', 'data', 'registrations');
+                await addDoc(regsRef, newReg);
                 
-                setState({ registrations: updated, view: 'success', isSubmitting: false });
+                setState({ view: 'success', isSubmitting: false });
             } catch (err) {
                 await showAlert("신청 중 오류가 발생했습니다: " + err.message, "신청 실패");
                 setState({ isSubmitting: false });
@@ -338,6 +368,7 @@
         async function handleUpdate(e) {
             e.preventDefault();
             if (!checkTimeLimits()) return;
+            if (!auth.currentUser) return;
             
             const docId = state.editRegistrationId;
             if (!docId) return;
@@ -355,26 +386,19 @@
 
             setState({ isSubmitting: true });
             try {
-                const updated = state.registrations.map(r => {
-                    if (r.id === docId) {
-                        return {
-                            ...r,
-                            date: state.selectedDate,
-                            time: state.selectedTime,
-                            updatedAt: new Date().toISOString()
-                        };
-                    }
-                    return r;
+                const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'registrations', docId);
+                await updateDoc(docRef, {
+                    date: state.selectedDate,
+                    time: state.selectedTime,
+                    updatedAt: new Date().toISOString()
                 });
 
-                saveRegistrations(updated);
                 await showAlert("일정이 성공적으로 변경되었습니다.");
                 
-                const updatedDoc = updated.find(item => item.id === docId);
+                const updatedDoc = state.registrations.find(item => item.id === docId);
                 setState({ 
-                    registrations: updated,
                     view: 'my_status', 
-                    editData: updatedDoc || state.editData,
+                    editData: updatedDoc ? { ...updatedDoc, date: state.selectedDate, time: state.selectedTime } : state.editData,
                     isSubmitting: false
                 });
             } catch (err) {
@@ -412,11 +436,12 @@
         window.cancelMyRegistration = async () => {
             const confirmed = await showConfirm("정말 신청을 취소하시겠습니까?\n취소 후 복구가 불가능하며 다시 신청하셔야 합니다.", "신청 취소");
             if (!confirmed) return;
+            if (!auth.currentUser) return;
             
             setState({ isSubmitting: true });
             try {
-                const updated = state.registrations.filter(r => r.id !== state.editRegistrationId);
-                saveRegistrations(updated);
+                const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'registrations', state.editRegistrationId);
+                await deleteDoc(docRef);
                 await showAlert("신청이 정상적으로 취소되었습니다.");
                 window.resetToHome();
             } catch (err) {
@@ -447,10 +472,10 @@
         window.deleteRegistration = async (id) => {
             const confirmed = await showConfirm("해당 신청 내역을 삭제하시겠습니까?", "삭제 확인");
             if (!confirmed) return;
+            if (!auth.currentUser) return;
             try {
-                const updated = state.registrations.filter(r => r.id !== id);
-                saveRegistrations(updated);
-                setState({ registrations: updated });
+                const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'registrations', id);
+                await deleteDoc(docRef);
                 showAlert("삭제되었습니다.");
             } catch (err) {
                 showAlert("삭제 실패: " + err.message);
@@ -458,12 +483,16 @@
         };
 
         window.updateSettings = async () => {
+            if (!auth.currentUser) return;
             const startAt = document.getElementById('settings-start').value;
             const endAt = document.getElementById('settings-end').value;
-            const newSettings = { startAt, endAt };
-            saveSettingsToStorage(newSettings);
-            setState({ settings: newSettings });
-            showAlert("설정 저장에 성공했습니다.");
+            try {
+                const settingsRef = doc(db, 'artifacts', appId, 'public', 'data', 'config', 'settings');
+                await setDoc(settingsRef, { startAt, endAt }, { merge: true });
+                showAlert("설정 저장에 성공했습니다.");
+            } catch (e) {
+                showAlert("설정 저장 실패: " + e.message);
+            }
         };
 
         function renderCalendar() {
@@ -809,7 +838,7 @@
                         </div>
                     `;
                 } else {
-                    const sortedRegs = [...state.registrations].sort((a,b) => a.createdAt.localeCompare(b.createdAt));
+                    const sortedRegs = [...state.registrations].sort((a,b) => (a.createdAt || "").localeCompare(b.createdAt || ""));
                     const displayRegs = [...sortedRegs].reverse();
 
                     appDiv.innerHTML = navbar + `
@@ -893,9 +922,7 @@
             else showAlert("비밀번호가 틀렸습니다.");
         };
 
-        // 초기 렌더링 실행
         render();
-
     </script>
 </body>
 </html>
