@@ -88,7 +88,6 @@
                 appId: "1:770790858383:web:c99479ab13776bdfc6dafa",
                 measurementId: "G-DEWKGT5BEM"
             };
-        }
 
         const globalAppId = 'navien-awh-2609';
         const MAX_CAPACITY = 31;
@@ -985,7 +984,33 @@
         };
 
         // Firebase 초기 연동 실행
-        initFirebase();
+async function initFirebase() {
+            try {
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                
+                onAuthStateChanged(auth, (user) => {
+                    state.user = user;
+                    if (user) {
+                        setState({ firebaseStatus: 'connected', firebaseErrorType: null });
+                        listenToData();
+                        listenToSettings();
+                    }
+                });
+
+                // 복잡한 커스텀 토큰 분기 대신 안전하게 익명 로그인 실행
+                await signInAnonymously(auth);
+
+            } catch (err) {
+                console.error("Firebase 초기화 에러:", err);
+                if (err.code === 'auth/configuration-not-found') {
+                    setState({ firebaseStatus: 'error', firebaseErrorType: 'auth' });
+                } else {
+                    setState({ firebaseStatus: 'error', firebaseErrorType: 'unknown' });
+                }
+            }
+        }
 
     </script>
 </body>
