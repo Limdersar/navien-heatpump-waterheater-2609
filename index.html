@@ -78,17 +78,27 @@
         import { getFirestore, collection, doc, onSnapshot, runTransaction, query, getDocs, deleteDoc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 
-        // --- 1. 환경 설정 및 Firebase 설정 ---
-        // 기존 정보를 유지하되, 필요시 환경변수로 주입받을 수 있도록 처리
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
-            apiKey: "AIzaSyDJGKm_NzK2E86G6YRdR5rCEPPGZA1FRMY",
-            authDomain: "navien-heatpump-2609.firebaseapp.com",
-            projectId: "navien-heatpump-2609",
-            storageBucket: "navien-heatpump-2609.firebasestorage.app",
-            messagingSenderId: "770790858383",
-            appId: "1:770790858383:web:c99479ab13776bdfc6dafa",
-            measurementId: "G-DEWKGT5BEM"
-        };
+        // --- 1. 환경 설정 및 Firebase 설정 (GitHub 배포 환경 대응 보완) ---
+        let firebaseConfig;
+        try {
+            if (typeof __firebase_config !== 'undefined' && __firebase_config && __firebase_config.trim() !== '') {
+                firebaseConfig = JSON.parse(__firebase_config);
+            }
+        } catch (e) {
+            console.warn("__firebase_config 파싱 실패, 기본 설정 사용");
+        }
+
+        if (!firebaseConfig || !firebaseConfig.apiKey) {
+            firebaseConfig = {
+                apiKey: "AIzaSyDJGKm_NzK2E86G6YRdR5rCEPPGZA1FRMY",
+                authDomain: "navien-heatpump-2609.firebaseapp.com",
+                projectId: "navien-heatpump-2609",
+                storageBucket: "navien-heatpump-2609.firebasestorage.app",
+                messagingSenderId: "770790858383",
+                appId: "1:770790858383:web:c99479ab13776bdfc6dafa",
+                measurementId: "G-DEWKGT5BEM"
+            };
+        }
 
         const globalAppId = typeof __app_id !== 'undefined' ? __app_id : 'navien-awh-2609'; // DB 분리를 위해 앱 ID 변경
         const MAX_CAPACITY = 31; // 차수당 31명으로 변경
@@ -109,7 +119,7 @@
             view: 'registration', 
             user: null,
             registrations: [],
-            selectedDate: "2026-09-09", // 기본 선택 날짜 9/9
+            selectedDate: "2026-09-08", // 기본 선택 날짜 9/8
             selectedTime: "오전", // 오전, 오후 선택
             isAdminAuthenticated: false,
             isSubmitting: false,
